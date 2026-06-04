@@ -182,6 +182,7 @@ pub fn get_best_score(mode: Mode, diff: Diff) -> u32 {
     get_top_scores(mode, diff).first().map(|e| e.score).unwrap_or(0)
 }
 
+#[allow(dead_code)]
 pub fn record_score(mode: Mode, diff: Diff, score: u32, level: u32) {
     record_score_named(mode, diff, score, level, "");
 }
@@ -213,6 +214,7 @@ pub fn update_profile_stats(foods_delta: u64, max_streak: u32) {
     save_data(&data);
 }
 
+#[allow(dead_code)]
 pub fn get_profile() -> PlayerProfile {
     load_data().profile
 }
