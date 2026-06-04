@@ -202,6 +202,7 @@ impl Food {
         }
     }
 
+    #[allow(dead_code)]
     pub fn remaining_secs(&self) -> Option<f64> {
         if let Some(expire_secs) = self.kind.expire_secs() {
             let elapsed = self.spawned.elapsed().as_secs_f64();
