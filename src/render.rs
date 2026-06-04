@@ -99,9 +99,9 @@ fn draw_hud(stdout: &mut impl Write, state: &GameState) {
 
     // Personal best (CD4/CD8)
     if state.personal_best > 0 {
-        let pb_str = format!("Best: {}", state.personal_best);
-        let pb_col = 20u16;
-        let _ = queue!(stdout, MoveTo(pb_col, 0), SetForegroundColor(Color::DarkGrey), Print(&pb_str), ResetColor);
+        let pb_str = format!("Best:{}", state.personal_best);
+        let pb_col = BORDER_RIGHT_COL.saturating_sub(pb_str.len() as u16 + 1);
+        let _ = queue!(stdout, MoveTo(pb_col, 1), SetForegroundColor(Color::DarkGrey), Print(&pb_str), ResetColor);
     }
 
     // Row 1: Lives (Time Attack) and Level
@@ -266,10 +266,14 @@ fn draw_grid(stdout: &mut impl Write, state: &GameState) {
     // Floating score text at eaten position (CD3)
     if let Some((pos, ref txt, t)) = state.last_eaten {
         if t.elapsed().as_secs_f64() < 0.6 {
-            let col = GRID_LEFT_COL + pos.x as u16 * CELL_W;
-            let row = GRID_START_ROW + pos.y as u16;
-            let show_row = if row > GRID_START_ROW { row - 1 } else { row };
-            let _ = queue!(stdout, MoveTo(col, show_row), SetForegroundColor(Color::Yellow), Print(txt), ResetColor);
+            let col = (GRID_LEFT_COL + pos.x as u16 * CELL_W)
+                .min(BORDER_RIGHT_COL.saturating_sub(txt.len() as u16 + 1));
+            let show_row = if pos.y > 0 {
+                GRID_START_ROW + pos.y as u16 - 1
+            } else {
+                GRID_START_ROW
+            };
+            let _ = queue!(stdout, MoveTo(col, show_row), SetForegroundColor(Color::Yellow), Print(txt.as_str()), ResetColor);
         }
     }
 }
@@ -342,13 +346,26 @@ fn draw_status(stdout: &mut impl Write, state: &GameState) {
         }
     }
 
+    // Reversed controls warning (CD7) — supplement the top-left indicator
+    if state.reversed_until.map(|t| std::time::Instant::now() < t).unwrap_or(false) {
+        let _ = queue!(
+            stdout, MoveTo(0, row + 1),
+            SetForegroundColor(Color::Magenta),
+            Print(" ↔ CONTROLS REVERSED — up=down, left=right ↔ "),
+            ResetColor
+        );
+    }
+
     // Daily mission progress hint
     let mission_color = if state.daily_completed { Color::Green } else { Color::DarkGrey };
     let mission_str = if state.daily_completed {
-        format!(" ★ Daily: {} ✓", state.daily_desc)
+        format!(" ★ Daily done: {} ✓", &state.daily_desc)
     } else {
-        format!(" Daily: {} ({}/{})", state.daily_desc, state.daily_progress, state.daily_target)
+        format!(" Daily: {} ({}/{})", &state.daily_desc, state.daily_progress, state.daily_target)
     };
+    // Truncate to avoid overflow
+    let max_len = (BORDER_RIGHT_COL as usize + 1).min(60);
+    let mission_str: String = mission_str.chars().take(max_len).collect();
     let _ = queue!(stdout, MoveTo(0, row + 3), SetForegroundColor(mission_color), Print(&mission_str), ResetColor);
 
     // Controls hint

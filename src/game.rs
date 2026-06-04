@@ -372,6 +372,15 @@ impl GameState {
         // Remove expired food (Bonus, Golden, Shrink)
         self.food.retain(|f| !f.is_expired());
 
+        // In Time Attack, always maintain one regular food on the grid
+        if self.mode == Mode::TimeAttack
+            && self.status == Status::Running
+            && !self.food.iter().any(|f| f.kind == FoodKind::Regular)
+        {
+            self.spawn_food(FoodKind::Regular);
+            self.food_timer = Some(std::time::Instant::now());
+        }
+
         // Apply direction
         self.dir = self.next_dir;
         let (dx, dy) = self.dir.delta();
@@ -470,7 +479,13 @@ impl GameState {
                 pts += mystery_pts; // for floating text
                 match effect {
                     crate::types::MysteryEffect::SpeedBoost => {
-                        self.speed_boost_until = Some(std::time::Instant::now() + Duration::from_secs(5));
+                        let new_boost_end = std::time::Instant::now() + Duration::from_secs(5);
+                        self.speed_boost_until = Some(
+                            self.speed_boost_until
+                                .filter(|&t| t > std::time::Instant::now())
+                                .map(|t| t.max(new_boost_end))
+                                .unwrap_or(new_boost_end)
+                        );
                     }
                     crate::types::MysteryEffect::Reverse => {
                         self.reversed_until = Some(std::time::Instant::now() + Duration::from_secs(3));
@@ -481,6 +496,26 @@ impl GameState {
                     _ => {}
                 }
                 self.message = Some((effect.label().to_string(), std::time::Instant::now()));
+            }
+
+            // Update personal best live (CD4/CD8)
+            if self.score > self.personal_best {
+                if self.personal_best > 0 {
+                    self.message = Some(("★ New Personal Best!".to_string(), std::time::Instant::now()));
+                }
+                self.personal_best = self.score;
+            }
+
+            // "Approaching top score" nudge
+            let top_score = crate::storage::get_best_score(self.mode, self.diff);
+            if top_score > 0 && self.score < top_score && self.score * 10 >= top_score * 9 {
+                // Within 10% of the top score
+                if self.message.is_none() {
+                    self.message = Some((
+                        format!("So close! Best: {}", top_score),
+                        std::time::Instant::now(),
+                    ));
+                }
             }
 
             // Floating score text
@@ -501,7 +536,13 @@ impl GameState {
 
             // Golden food speed boost
             if food.kind == FoodKind::Golden {
-                self.speed_boost_until = Some(Instant::now() + Duration::from_secs(3));
+                let new_boost_end = std::time::Instant::now() + Duration::from_secs(3);
+                self.speed_boost_until = Some(
+                    self.speed_boost_until
+                        .filter(|&t| t > std::time::Instant::now())
+                        .map(|t| t.max(new_boost_end))
+                        .unwrap_or(new_boost_end)
+                );
             }
 
             // Mode-specific logic after eating
@@ -602,7 +643,7 @@ impl GameState {
             // No food eaten - remove tail normally
             self.snake.pop_back();
             self.idle_ticks += 1;
-            if self.streak >= 3 {
+            if self.streak >= 2 {
                 self.streak_lost_at = Some(std::time::Instant::now());
             }
             self.streak = 0;
@@ -624,15 +665,18 @@ impl GameState {
                         self.lives -= 1;
                     }
                     self.streak = 0;
-                    // Remove current food and respawn
-                    self.food.retain(|f| f.kind != FoodKind::Regular);
-                    self.spawn_food(FoodKind::Regular);
-                    self.food_timer = Some(Instant::now());
-
                     if self.lives == 0 {
                         self.status = Status::Over;
                         return;
                     }
+                    self.message = Some((
+                        format!("Life Lost! {} ♥ left", self.lives),
+                        std::time::Instant::now(),
+                    ));
+                    // Remove current food and respawn
+                    self.food.retain(|f| f.kind != FoodKind::Regular);
+                    self.spawn_food(FoodKind::Regular);
+                    self.food_timer = Some(Instant::now());
                 }
             }
 

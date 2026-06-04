@@ -16,22 +16,20 @@ const DIFFS: &[Diff] = &[Diff::Nokiya, Diff::Easy, Diff::Normal, Diff::Hard, Dif
 
 pub fn run_menu() -> (Mode, Diff) {
     let mut stdout = io::stdout();
-
-    execute!(
-        stdout,
-        terminal::EnterAlternateScreen,
-        cursor::Hide
-    )
-    .unwrap();
+    execute!(stdout, terminal::EnterAlternateScreen, cursor::Hide).unwrap();
     terminal::enable_raw_mode().unwrap();
 
-    let mode = select_mode(&mut stdout);
-    let diff = select_diff(&mut stdout, mode);
+    let result = loop {
+        let mode = select_mode(&mut stdout);
+        if let Some(diff) = select_diff(&mut stdout, mode) {
+            break (mode, diff);
+        }
+        // Esc pressed — loop back to mode selection
+    };
 
     terminal::disable_raw_mode().unwrap();
     execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen).unwrap();
-
-    (mode, diff)
+    result
 }
 
 fn draw_banner(stdout: &mut impl Write) {
@@ -147,7 +145,7 @@ fn select_mode(stdout: &mut impl Write) -> Mode {
     }
 }
 
-fn select_diff(stdout: &mut impl Write, mode: Mode) -> Diff {
+fn select_diff(stdout: &mut impl Write, mode: Mode) -> Option<Diff> {
     let mut selected = 2usize; // Default: Normal
 
     loop {
@@ -212,11 +210,10 @@ fn select_diff(stdout: &mut impl Write, mode: Mode) -> Diff {
                     selected = (selected + 1) % DIFFS.len();
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
-                    return DIFFS[selected];
+                    return Some(DIFFS[selected]);
                 }
                 KeyCode::Esc => {
-                    // Go back to mode selection — we handle this by just returning Normal
-                    return DIFFS[selected];
+                    return None;
                 }
                 KeyCode::Char('q') | KeyCode::Char('Q') => {
                     let _ = terminal::disable_raw_mode();
