@@ -41,6 +41,28 @@ pub struct GameState {
     pub message: Option<(String, Instant)>,
     // Insane mode idle ticks counter
     pub idle_ticks: u32,
+    // CD3: floating score text shown by renderer
+    pub last_eaten: Option<(Pos, String, std::time::Instant)>,
+    // CD7: mystery food reversed-controls effect
+    pub reversed_until: Option<std::time::Instant>,
+    // CD2: achievement popup queue (name, unlocked_at)
+    pub pending_achievement: Option<(String, std::time::Instant)>,
+    // CD3/CD4: session stats
+    pub max_streak: u32,
+    pub ticks_lived: u64,
+    // CD8: precomputed by tick(), true when next move is fatal
+    pub danger_next_tick: bool,
+    // CD8: when streak was just lost (for brief alert)
+    pub streak_lost_at: Option<std::time::Instant>,
+    // CD2: count foods eaten specifically on Insane diff (SpeedDemon achievement)
+    pub insane_foods: u32,
+    // CD4/CD8: personal best for this mode+diff, loaded at init
+    pub personal_best: u32,
+    // CD1: daily mission cached
+    pub daily_desc: String,
+    pub daily_progress: u32,
+    pub daily_target: u32,
+    pub daily_completed: bool,
 }
 
 impl GameState {
@@ -67,7 +89,27 @@ impl GameState {
             maze_total_food: 0,
             message: None,
             idle_ticks: 0,
+            last_eaten: None,
+            reversed_until: None,
+            pending_achievement: None,
+            max_streak: 0,
+            ticks_lived: 0,
+            danger_next_tick: false,
+            streak_lost_at: None,
+            insane_foods: 0,
+            personal_best: crate::storage::get_best_score(mode, diff),
+            daily_desc: String::new(),
+            daily_progress: 0,
+            daily_target: 0,
+            daily_completed: false,
         };
+        {
+            let daily = crate::storage::get_daily();
+            state.daily_desc = daily.description;
+            state.daily_progress = daily.progress;
+            state.daily_target = daily.target;
+            state.daily_completed = daily.completed;
+        }
 
         // Build initial snake at center
         let cx = GRID_W / 2;
@@ -287,8 +329,26 @@ impl GameState {
     }
 
     pub fn handle_dir(&mut self, dir: Dir) {
-        if !self.dir.is_opposite(dir) {
-            self.next_dir = dir;
+        let effective = if self.reversed_until
+            .map(|t| std::time::Instant::now() < t)
+            .unwrap_or(false)
+        {
+            match dir {
+                Dir::Up => Dir::Down, Dir::Down => Dir::Up,
+                Dir::Left => Dir::Right, Dir::Right => Dir::Left,
+            }
+        } else { dir };
+        if !self.dir.is_opposite(effective) {
+            self.next_dir = effective;
+        }
+    }
+
+    fn check_and_unlock(&mut self, a: crate::types::Achievement) {
+        if crate::storage::unlock_achievement(a) {
+            self.pending_achievement = Some((
+                format!("Achievement: {}", a.name()),
+                std::time::Instant::now(),
+            ));
         }
     }
 
@@ -306,6 +366,8 @@ impl GameState {
         if self.status != Status::Running {
             return;
         }
+
+        self.ticks_lived += 1;
 
         // Remove expired food (Bonus, Golden, Shrink)
         self.food.retain(|f| !f.is_expired());
@@ -399,6 +461,31 @@ impl GameState {
             }
 
             self.score += pts;
+
+            // Apply mystery food extra effects
+            if food.kind == FoodKind::Mystery {
+                let effect = crate::types::MysteryEffect::random();
+                let mystery_pts = (effect.pts() as f64 * self.diff.multiplier()).round() as u32;
+                self.score += mystery_pts;
+                pts += mystery_pts; // for floating text
+                match effect {
+                    crate::types::MysteryEffect::SpeedBoost => {
+                        self.speed_boost_until = Some(std::time::Instant::now() + Duration::from_secs(5));
+                    }
+                    crate::types::MysteryEffect::Reverse => {
+                        self.reversed_until = Some(std::time::Instant::now() + Duration::from_secs(3));
+                    }
+                    crate::types::MysteryEffect::Shrink => {
+                        for _ in 0..3 { if self.snake.len() > 1 { self.snake.pop_back(); } }
+                    }
+                    _ => {}
+                }
+                self.message = Some((effect.label().to_string(), std::time::Instant::now()));
+            }
+
+            // Floating score text
+            self.last_eaten = Some((new_head, format!("+{}", pts), std::time::Instant::now()));
+
             self.streak += 1;
             self.foods_eaten += 1;
             self.idle_ticks = 0;
@@ -440,6 +527,7 @@ impl GameState {
                 Mode::Maze => {
                     // Check if all food collected
                     if self.food.is_empty() {
+                        self.check_and_unlock(crate::types::Achievement::MazeRunner);
                         // Advance level
                         self.level += 1;
                         self.generate_maze();
@@ -464,16 +552,46 @@ impl GameState {
                 self.spawn_food(FoodKind::Shrink);
             }
 
+            // Possibly spawn Mystery food (5% chance)
+            if rng.gen_bool(0.05) && !self.food.iter().any(|f| f.kind == FoodKind::Mystery) {
+                self.spawn_food(FoodKind::Mystery);
+            }
+
+            // CD2: Achievement checks on food eat
+            if self.foods_eaten == 1 { self.check_and_unlock(crate::types::Achievement::FirstBite); }
+            if self.streak >= 10 { self.check_and_unlock(crate::types::Achievement::OnFire); }
+            if self.score >= 100 { self.check_and_unlock(crate::types::Achievement::CenturyClub); }
+            if self.score >= 500 { self.check_and_unlock(crate::types::Achievement::HighRoller); }
+            if self.diff == Diff::Insane {
+                self.insane_foods += 1;
+                if self.insane_foods >= 5 { self.check_and_unlock(crate::types::Achievement::SpeedDemon); }
+            }
+            if self.streak > self.max_streak { self.max_streak = self.streak; }
+            // CD1: Daily mission progress
+            crate::storage::update_daily_progress(self.mode, "foods", self.foods_eaten);
+            crate::storage::update_daily_progress(self.mode, "score", self.score);
+            crate::storage::update_daily_progress(self.mode, "streak", self.streak);
+            // Refresh daily mission cache
+            {
+                let daily = crate::storage::get_daily();
+                self.daily_desc = daily.description;
+                self.daily_progress = daily.progress;
+                self.daily_target = daily.target;
+                self.daily_completed = daily.completed;
+            }
+
             // Check win conditions
             match self.mode {
                 Mode::Classic => {
                     if self.snake.len() >= (GRID_W * GRID_H) as usize {
+                        self.check_and_unlock(crate::types::Achievement::ClassicKing);
                         self.status = Status::Won;
                         return;
                     }
                 }
                 Mode::Portal => {
                     if self.score >= self.portal_target {
+                        self.check_and_unlock(crate::types::Achievement::PortalMaster);
                         self.status = Status::Won;
                         return;
                     }
@@ -484,6 +602,9 @@ impl GameState {
             // No food eaten - remove tail normally
             self.snake.pop_back();
             self.idle_ticks += 1;
+            if self.streak >= 3 {
+                self.streak_lost_at = Some(std::time::Instant::now());
+            }
             self.streak = 0;
 
             // Insane difficulty: shrink on idle every 50 ticks
@@ -518,6 +639,7 @@ impl GameState {
             // Check total game timer
             if let Some(start) = self.game_timer_start {
                 if start.elapsed().as_secs_f64() >= 60.0 {
+                    self.check_and_unlock(crate::types::Achievement::TimeSurvivor);
                     self.status = Status::Won;
                     return;
                 }
@@ -530,6 +652,47 @@ impl GameState {
                 self.message = None;
             }
         }
+
+        // Expire reversed controls
+        if let Some(t) = self.reversed_until {
+            if std::time::Instant::now() >= t { self.reversed_until = None; }
+        }
+        // Expire achievement popup after 3s
+        if let Some((_, t)) = &self.pending_achievement {
+            if t.elapsed().as_secs_f64() > 3.0 { self.pending_achievement = None; }
+        }
+        // Expire streak-lost alert after 1.5s
+        if let Some(t) = self.streak_lost_at {
+            if t.elapsed().as_secs_f64() > 1.5 { self.streak_lost_at = None; }
+        }
+        // Expire floating text after 0.6s
+        if let Some((_, _, t)) = &self.last_eaten {
+            if t.elapsed().as_secs_f64() > 0.6 { self.last_eaten = None; }
+        }
+        // Update danger indicator
+        self.update_danger();
+    }
+
+    fn update_danger(&mut self) {
+        if self.status != Status::Running { self.danger_next_tick = false; return; }
+        let head = match self.snake.front() { Some(h) => *h, None => { self.danger_next_tick = false; return; } };
+        let (dx, dy) = self.dir.delta();
+        let mut next = Pos::new(head.x + dx, head.y + dy);
+        match self.mode {
+            Mode::Portal => {
+                next.x = next.x.rem_euclid(GRID_W);
+                next.y = next.y.rem_euclid(GRID_H);
+            }
+            _ => {
+                if next.x < 0 || next.x >= GRID_W || next.y < 0 || next.y >= GRID_H {
+                    self.danger_next_tick = true; return;
+                }
+            }
+        }
+        if self.walls.contains(&next) { self.danger_next_tick = true; return; }
+        // Check self collision (excluding tail)
+        let check_len = self.snake.len() - 1;
+        self.danger_next_tick = (0..check_len).any(|i| self.snake[i] == next);
     }
 }
 
@@ -548,11 +711,8 @@ pub fn run(mode: Mode, diff: Diff) {
     terminal::disable_raw_mode().unwrap();
     execute!(stdout, cursor::Show, terminal::LeaveAlternateScreen).unwrap();
 
-    if let Some((score, m, d, level)) = result {
-        if score > 0 {
-            storage::record_score(m, d, score, level);
-        }
-    }
+    // Score recording is now handled inside game_loop (via R key for game over/won)
+    let _ = result;
 }
 
 fn game_loop(mode: Mode, diff: Diff, stdout: &mut impl Write) -> Option<(u32, Mode, Diff, u32)> {
@@ -595,13 +755,18 @@ fn game_loop(mode: Mode, diff: Diff, stdout: &mut impl Write) -> Option<(u32, Mo
                         if matches!(state.status, Status::Over | Status::Won) {
                             let score = state.score;
                             let level = state.level;
-                            storage::record_score(mode, diff, score, level);
+                            let foods = state.foods_eaten as u64;
+                            let max_str = state.max_streak;
+                            let name = crate::menu::enter_initials(stdout, score);
+                            storage::record_score_named(mode, diff, score, level, &name);
+                            storage::update_profile_stats(foods, max_str);
                             state = GameState::new(mode, diff);
                             last_tick = Instant::now();
                             render::draw(stdout, &state);
                         }
                     }
                     KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
+                        crate::storage::update_profile_stats(state.foods_eaten as u64, state.max_streak);
                         let score = state.score;
                         let level = state.level;
                         return Some((score, mode, diff, level));

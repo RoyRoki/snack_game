@@ -55,6 +55,18 @@ fn draw_banner(stdout: &mut impl Write) {
             ResetColor
         );
     }
+
+    let lore = [
+        "You are the Ancient Snake, guardian of the Digital Grid.",
+        "Consume the sacred Bits. Grow in power. Never stop moving.",
+    ];
+    for (i, line) in lore.iter().enumerate() {
+        let _ = queue!(
+            stdout, crossterm::cursor::MoveTo(2, 9 + i as u16),
+            SetForegroundColor(Color::DarkGrey),
+            Print(line), ResetColor
+        );
+    }
 }
 
 fn select_mode(stdout: &mut impl Write) -> Mode {
@@ -67,7 +79,7 @@ fn select_mode(stdout: &mut impl Write) -> Mode {
             stdout,
             crossterm::cursor::MoveTo(2, 10),
             SetForegroundColor(Color::White),
-            Print("Select Game Mode  [↑/↓ or W/S] Navigate  [Enter/Space] Select"),
+            Print("Select Mode  [↑/↓] Nav  [Enter] Select  [A] Achievements  [Q] Quit"),
             ResetColor
         );
 
@@ -119,6 +131,9 @@ fn select_mode(stdout: &mut impl Write) -> Mode {
                 }
                 KeyCode::Enter | KeyCode::Char(' ') => {
                     return MODES[selected];
+                }
+                KeyCode::Char('a') | KeyCode::Char('A') => {
+                    show_achievements_screen(&mut *stdout);
                 }
                 KeyCode::Char('q') | KeyCode::Char('Q') | KeyCode::Esc => {
                     // Cleanup and exit
@@ -234,18 +249,126 @@ fn draw_preview_scores(stdout: &mut impl Write, mode: Mode, diff: Diff, start_ro
         );
     } else {
         for (i, entry) in scores.iter().enumerate() {
+            let name_display = if entry.name.is_empty() { "---".to_string() } else { entry.name.clone() };
             let _ = queue!(
                 stdout,
                 crossterm::cursor::MoveTo(4, start_row + 1 + i as u16),
                 SetForegroundColor(Color::White),
-                Print(format!(
-                    "{}. {:6}pts  Lvl {}",
-                    i + 1,
-                    entry.score,
-                    entry.level
-                )),
+                Print(format!("{}. {} {:6}pts  Lvl {}", i + 1, name_display, entry.score, entry.level)),
                 ResetColor
             );
+        }
+    }
+
+    let _ = queue!(
+        stdout, crossterm::cursor::MoveTo(2, start_row + 7),
+        SetForegroundColor(Color::DarkGrey),
+        Print("─────────────────────────────────"),
+        ResetColor
+    );
+    let daily = storage::get_daily();
+    let daily_color = if daily.completed { Color::Green } else { Color::Yellow };
+    let _ = queue!(
+        stdout, crossterm::cursor::MoveTo(2, start_row + 8),
+        SetForegroundColor(daily_color),
+        Print(format!("Daily: {}", daily.description)),
+        ResetColor
+    );
+    let _ = queue!(
+        stdout, crossterm::cursor::MoveTo(2, start_row + 9),
+        SetForegroundColor(Color::DarkGrey),
+        Print(format!("Progress: {}/{}{}", daily.progress, daily.target,
+            if daily.completed { " ✓" } else { "" })),
+        ResetColor
+    );
+}
+
+fn show_achievements_screen(stdout: &mut impl Write) {
+    loop {
+        let _ = queue!(stdout, Clear(ClearType::All));
+        let _ = queue!(
+            stdout, crossterm::cursor::MoveTo(2, 1),
+            SetForegroundColor(Color::Yellow),
+            Print("  ACHIEVEMENTS  "),
+            ResetColor
+        );
+        for (i, &a) in crate::types::Achievement::ALL.iter().enumerate() {
+            let unlocked = storage::is_unlocked(a);
+            let row = 3 + i as u16 * 2;
+            let (sym, color) = if unlocked { ("✓", Color::Green) } else { ("○", Color::DarkGrey) };
+            let _ = queue!(
+                stdout, crossterm::cursor::MoveTo(2, row),
+                SetForegroundColor(color),
+                Print(format!("{} {} — {}", sym, a.name(), a.description())),
+                ResetColor
+            );
+        }
+        let _ = queue!(
+            stdout, crossterm::cursor::MoveTo(2, 24),
+            SetForegroundColor(Color::DarkGrey),
+            Print("[Any key] Back"),
+            ResetColor
+        );
+        let _ = stdout.flush();
+        if event::read().is_ok() { break; }
+    }
+}
+
+/// Shows a 3-char initials entry screen and returns the entered name.
+pub fn enter_initials(stdout: &mut impl Write, score: u32) -> String {
+    let mut chars = [b'A', b'A', b'A'];
+    let mut cursor = 0usize;
+
+    loop {
+        let _ = queue!(stdout, Clear(ClearType::All));
+        let _ = queue!(
+            stdout, crossterm::cursor::MoveTo(2, 5),
+            SetForegroundColor(Color::Yellow),
+            Print(format!("Score: {}  —  Enter your initials:", score)),
+            ResetColor
+        );
+        // Draw the 3 chars
+        for (i, &ch) in chars.iter().enumerate() {
+            let col = 10 + i as u16 * 4;
+            let color = if i == cursor { Color::Green } else { Color::White };
+            let _ = queue!(
+                stdout, crossterm::cursor::MoveTo(col, 7),
+                SetForegroundColor(Color::Black),
+                crossterm::style::SetBackgroundColor(color),
+                Print(format!(" {} ", ch as char)),
+                ResetColor
+            );
+        }
+        let _ = queue!(
+            stdout, crossterm::cursor::MoveTo(2, 9),
+            SetForegroundColor(Color::DarkGrey),
+            Print("[↑/↓] Change letter   [←/→] Move   [Enter] Confirm"),
+            ResetColor
+        );
+        let _ = stdout.flush();
+
+        if let Ok(Event::Key(key)) = event::read() {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('w') | KeyCode::Char('W') => {
+                    chars[cursor] = if chars[cursor] == b'Z' { b'A' } else { chars[cursor] + 1 };
+                }
+                KeyCode::Down | KeyCode::Char('s') | KeyCode::Char('S') => {
+                    chars[cursor] = if chars[cursor] == b'A' { b'Z' } else { chars[cursor] - 1 };
+                }
+                KeyCode::Right | KeyCode::Char('d') | KeyCode::Char('D') => {
+                    if cursor < 2 { cursor += 1; }
+                }
+                KeyCode::Left | KeyCode::Char('a') | KeyCode::Char('A') => {
+                    if cursor > 0 { cursor -= 1; }
+                }
+                KeyCode::Enter | KeyCode::Char(' ') => {
+                    return String::from_utf8_lossy(&chars).to_string();
+                }
+                KeyCode::Esc => {
+                    return "---".to_string();
+                }
+                _ => {}
+            }
         }
     }
 }

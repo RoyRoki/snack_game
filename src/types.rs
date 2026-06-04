@@ -139,6 +139,7 @@ pub enum FoodKind {
     Bonus,
     Golden,
     Shrink,
+    Mystery,
 }
 
 impl FoodKind {
@@ -148,6 +149,7 @@ impl FoodKind {
             FoodKind::Bonus => 25,
             FoodKind::Golden => 50,
             FoodKind::Shrink => 15,
+            FoodKind::Mystery => 0,
         }
     }
 
@@ -157,6 +159,7 @@ impl FoodKind {
             FoodKind::Bonus => 1,
             FoodKind::Golden => 2,
             FoodKind::Shrink => -2,
+            FoodKind::Mystery => 1,
         }
     }
 
@@ -166,6 +169,7 @@ impl FoodKind {
             FoodKind::Bonus => "★",
             FoodKind::Golden => "◆",
             FoodKind::Shrink => "▼",
+            FoodKind::Mystery => "?",
         }
     }
 
@@ -175,6 +179,7 @@ impl FoodKind {
             FoodKind::Bonus => Some(5.0),
             FoodKind::Golden => Some(7.0),
             FoodKind::Shrink => Some(7.0),
+            FoodKind::Mystery => Some(5.0),
         }
     }
 }
@@ -219,4 +224,88 @@ pub enum Status {
     Paused,
     Over,
     Won,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MysteryEffect {
+    Jackpot,    // +50 pts  "JACKPOT!"
+    Bonus,      // +30 pts  "Bonus!"
+    SpeedBoost, // +20 pts + speed x2 for 5s  "TURBO!"
+    Reverse,    // +15 pts + controls flip 3s  "Reversed!"
+    Shrink,     // +10 pts + pop 3 extra tail cells  "Oops!"
+}
+
+impl MysteryEffect {
+    pub fn pts(self) -> u32 {
+        match self { Self::Jackpot => 50, Self::Bonus => 30, Self::SpeedBoost => 20, Self::Reverse => 15, Self::Shrink => 10 }
+    }
+    pub fn label(self) -> &'static str {
+        match self { Self::Jackpot => "JACKPOT!", Self::Bonus => "Bonus!", Self::SpeedBoost => "TURBO!", Self::Reverse => "Reversed!", Self::Shrink => "Oops!" }
+    }
+    pub fn random() -> Self {
+        use rand::Rng;
+        match rand::thread_rng().gen_range(0u32..100) {
+            0..=14  => Self::Jackpot,
+            15..=34 => Self::Bonus,
+            35..=54 => Self::SpeedBoost,
+            55..=74 => Self::Reverse,
+            _       => Self::Shrink,
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Achievement {
+    FirstBite, OnFire, SpeedDemon, TimeSurvivor, MazeRunner,
+    PortalMaster, ClassicKing, CenturyClub, HighRoller, Collector,
+}
+
+impl Achievement {
+    pub const ALL: &'static [Achievement] = &[
+        Self::FirstBite, Self::OnFire, Self::SpeedDemon, Self::TimeSurvivor,
+        Self::MazeRunner, Self::PortalMaster, Self::ClassicKing,
+        Self::CenturyClub, Self::HighRoller, Self::Collector,
+    ];
+    pub fn id(self) -> &'static str {
+        match self {
+            Self::FirstBite    => "first_bite",
+            Self::OnFire       => "on_fire",
+            Self::SpeedDemon   => "speed_demon",
+            Self::TimeSurvivor => "time_survivor",
+            Self::MazeRunner   => "maze_runner",
+            Self::PortalMaster => "portal_master",
+            Self::ClassicKing  => "classic_king",
+            Self::CenturyClub  => "century_club",
+            Self::HighRoller   => "high_roller",
+            Self::Collector    => "collector",
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::FirstBite    => "First Bite",
+            Self::OnFire       => "On Fire",
+            Self::SpeedDemon   => "Speed Demon",
+            Self::TimeSurvivor => "Time Survivor",
+            Self::MazeRunner   => "Maze Runner",
+            Self::PortalMaster => "Portal Master",
+            Self::ClassicKing  => "Classic King",
+            Self::CenturyClub  => "Century Club",
+            Self::HighRoller   => "High Roller",
+            Self::Collector    => "Collector",
+        }
+    }
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::FirstBite    => "Eat your first food",
+            Self::OnFire       => "Reach a streak of 10",
+            Self::SpeedDemon   => "Eat 5 foods on Insane difficulty",
+            Self::TimeSurvivor => "Survive 60 seconds in Time Attack",
+            Self::MazeRunner   => "Complete the Maze",
+            Self::PortalMaster => "Win Portal mode",
+            Self::ClassicKing  => "Fill the grid in Classic",
+            Self::CenturyClub  => "Score 100+ in one game",
+            Self::HighRoller   => "Score 500+ in one game",
+            Self::Collector    => "Unlock all other achievements",
+        }
+    }
 }

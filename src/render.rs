@@ -49,7 +49,7 @@ pub fn draw(stdout: &mut impl Write, state: &GameState) {
     let _ = queue!(stdout, Clear(ClearType::All));
 
     draw_hud(stdout, state);
-    draw_border(stdout);
+    draw_border(stdout, state.danger_next_tick);
     draw_grid(stdout, state);
     draw_status(stdout, state);
 
@@ -58,6 +58,15 @@ pub fn draw(stdout: &mut impl Write, state: &GameState) {
         Status::Over => draw_overlay_game_over(stdout, state),
         Status::Won => draw_overlay_win(stdout, state),
         Status::Running => {}
+    }
+
+    // CD2: Achievement popup
+    if let Some((ref msg, _)) = state.pending_achievement {
+        draw_achievement_popup(stdout, msg);
+    }
+    // CD7: Reversed controls indicator
+    if state.reversed_until.map(|t| std::time::Instant::now() < t).unwrap_or(false) {
+        draw_reverse_indicator(stdout);
     }
 
     let _ = stdout.flush();
@@ -88,6 +97,13 @@ fn draw_hud(stdout: &mut impl Write, state: &GameState) {
         ResetColor
     );
 
+    // Personal best (CD4/CD8)
+    if state.personal_best > 0 {
+        let pb_str = format!("Best: {}", state.personal_best);
+        let pb_col = 20u16;
+        let _ = queue!(stdout, MoveTo(pb_col, 0), SetForegroundColor(Color::DarkGrey), Print(&pb_str), ResetColor);
+    }
+
     // Row 1: Lives (Time Attack) and Level
     let level_str = format!(" Level: {}", state.level);
     let _ = queue!(
@@ -97,6 +113,20 @@ fn draw_hud(stdout: &mut impl Write, state: &GameState) {
         Print(&level_str),
         ResetColor
     );
+
+    // Streak multiplier indicator (CD3)
+    let mult_str = if state.streak >= 10 {
+        format!(" ×2.0 streak:{}", state.streak)
+    } else if state.streak >= 5 {
+        format!(" ×1.5 streak:{}", state.streak)
+    } else if state.streak > 0 {
+        format!(" streak:{}", state.streak)
+    } else {
+        String::new()
+    };
+    if !mult_str.is_empty() {
+        let _ = queue!(stdout, MoveTo(0, 1), SetForegroundColor(Color::Yellow), Print(&mult_str), ResetColor);
+    }
 
     if state.mode == Mode::TimeAttack {
         // Lives
@@ -136,8 +166,9 @@ fn draw_hud(stdout: &mut impl Write, state: &GameState) {
     }
 }
 
-fn draw_border(stdout: &mut impl Write) {
-    let _ = queue!(stdout, SetForegroundColor(Color::White));
+fn draw_border(stdout: &mut impl Write, danger: bool) {
+    let border_color = if danger { Color::Red } else { Color::White };
+    let _ = queue!(stdout, SetForegroundColor(border_color));
 
     // Top border
     let _ = queue!(stdout, MoveTo(0, BORDER_TOP_ROW), Print("┌"));
@@ -217,6 +248,7 @@ fn draw_grid(stdout: &mut impl Write, state: &GameState) {
                     FoodKind::Bonus => Color::Magenta,
                     FoodKind::Golden => Color::Yellow,
                     FoodKind::Shrink => Color::Cyan,
+                    FoodKind::Mystery => Color::White,
                 };
                 let sym = format!("{} ", food.kind.symbol());
                 let _ = queue!(
@@ -228,6 +260,16 @@ fn draw_grid(stdout: &mut impl Write, state: &GameState) {
             } else {
                 let _ = queue!(stdout, Print("  "));
             }
+        }
+    }
+
+    // Floating score text at eaten position (CD3)
+    if let Some((pos, ref txt, t)) = state.last_eaten {
+        if t.elapsed().as_secs_f64() < 0.6 {
+            let col = GRID_LEFT_COL + pos.x as u16 * CELL_W;
+            let row = GRID_START_ROW + pos.y as u16;
+            let show_row = if row > GRID_START_ROW { row - 1 } else { row };
+            let _ = queue!(stdout, MoveTo(col, show_row), SetForegroundColor(Color::Yellow), Print(txt), ResetColor);
         }
     }
 }
@@ -271,6 +313,44 @@ fn draw_status(stdout: &mut impl Write, state: &GameState) {
         );
     }
 
+    // Food expiry countdowns (CD6)
+    let expiring: Vec<(&Food, f64)> = state.food.iter()
+        .filter_map(|f| f.remaining_secs().map(|r| (f, r)))
+        .collect();
+    if !expiring.is_empty() {
+        let mut expiry_str = String::new();
+        for (f, r) in &expiring {
+            expiry_str.push_str(&format!(" {}:{:.1}s", f.kind.symbol(), r));
+        }
+        let _ = queue!(
+            stdout, MoveTo(0, row + 2),
+            SetForegroundColor(Color::DarkGrey),
+            Print(format!("Expiring:{}", expiry_str)),
+            ResetColor
+        );
+    }
+
+    // Streak-lost alert (CD8)
+    if let Some(t) = state.streak_lost_at {
+        if t.elapsed().as_secs_f64() < 1.5 {
+            let _ = queue!(
+                stdout, MoveTo(BORDER_RIGHT_COL.saturating_sub(14), row),
+                SetForegroundColor(Color::Red),
+                Print("Streak lost!"),
+                ResetColor
+            );
+        }
+    }
+
+    // Daily mission progress hint
+    let mission_color = if state.daily_completed { Color::Green } else { Color::DarkGrey };
+    let mission_str = if state.daily_completed {
+        format!(" ★ Daily: {} ✓", state.daily_desc)
+    } else {
+        format!(" Daily: {} ({}/{})", state.daily_desc, state.daily_progress, state.daily_target)
+    };
+    let _ = queue!(stdout, MoveTo(0, row + 3), SetForegroundColor(mission_color), Print(&mission_str), ResetColor);
+
     // Controls hint
     let hint = " [←↑→↓/WASD] Move  [P] Pause  [Q/Esc] Quit  [R] Restart";
     let _ = queue!(
@@ -298,18 +378,23 @@ fn draw_overlay_paused(stdout: &mut impl Write) {
 }
 
 fn draw_overlay_game_over(stdout: &mut impl Write, state: &GameState) {
-    let msg = format!(" GAME OVER — Score: {} — [R] Restart  [Q] Quit ", state.score);
-    let msg_len = msg.len() as u16;
-    let col = (BORDER_RIGHT_COL / 2).saturating_sub(msg_len / 2).max(1);
-    let row = GRID_START_ROW + GRID_H as u16 / 2;
-    let _ = queue!(
-        stdout,
-        MoveTo(col, row),
-        SetForegroundColor(Color::Black),
-        crossterm::style::SetBackgroundColor(Color::Red),
-        Print(&msg),
-        ResetColor
-    );
+    let row = GRID_START_ROW + GRID_H as u16 / 2 - 2;
+    let lines = [
+        format!(" GAME OVER "),
+        format!(" Score: {}  Best: {} ", state.score, state.personal_best),
+        format!(" Foods: {}  Max streak: {} ", state.foods_eaten, state.max_streak),
+        format!(" [R] Restart   [Q] Quit "),
+    ];
+    for (i, line) in lines.iter().enumerate() {
+        let col = (BORDER_RIGHT_COL / 2).saturating_sub(line.len() as u16 / 2).max(1);
+        let bg = if i == 0 { Color::Red } else { Color::DarkRed };
+        let _ = queue!(
+            stdout, MoveTo(col, row + i as u16),
+            SetForegroundColor(Color::White),
+            crossterm::style::SetBackgroundColor(bg),
+            Print(line), ResetColor
+        );
+    }
 }
 
 fn draw_overlay_win(stdout: &mut impl Write, state: &GameState) {
@@ -323,6 +408,27 @@ fn draw_overlay_win(stdout: &mut impl Write, state: &GameState) {
         SetForegroundColor(Color::Black),
         crossterm::style::SetBackgroundColor(Color::Green),
         Print(&msg),
+        ResetColor
+    );
+}
+
+fn draw_achievement_popup(stdout: &mut impl Write, msg: &str) {
+    let display = format!("  {}  ", msg);
+    let col = (BORDER_RIGHT_COL / 2).saturating_sub(display.len() as u16 / 2).max(1);
+    let row = GRID_START_ROW + 1;
+    let _ = queue!(
+        stdout, MoveTo(col, row),
+        SetForegroundColor(Color::Black),
+        crossterm::style::SetBackgroundColor(Color::Yellow),
+        Print(&display), ResetColor
+    );
+}
+
+fn draw_reverse_indicator(stdout: &mut impl Write) {
+    let _ = queue!(
+        stdout, MoveTo(1, BORDER_TOP_ROW + 1),
+        SetForegroundColor(Color::Magenta),
+        Print("↔REVERSED"),
         ResetColor
     );
 }
