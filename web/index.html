@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SNACK</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:#0a0c10;color:#c9d1d9;font-family:'Courier New',monospace;
+     display:flex;align-items:center;justify-content:center;min-height:100vh;
+     user-select:none;-webkit-user-select:none}
+
+#menu{display:flex;flex-direction:column;align-items:center;gap:18px;padding:32px 24px}
+h1{font-size:2.8rem;letter-spacing:.5em;color:#39ff14;
+   text-shadow:0 0 24px #39ff1455;padding-right:.5em}
+.label{font-size:.6rem;letter-spacing:.25em;color:#444c58;margin-bottom:6px;text-align:center}
+.row{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.btn{background:#0d1117;border:1px solid #21262d;color:#8b949e;padding:7px 16px;
+     cursor:pointer;font-family:inherit;font-size:.75rem;letter-spacing:.1em;
+     transition:background .12s,color .12s,border-color .12s}
+.btn:hover{border-color:#39ff14;color:#c9d1d9}
+.btn.on{background:#0d2318;border-color:#39ff14;color:#39ff14}
+#start{padding:11px 44px;font-size:.9rem;letter-spacing:.3em;margin-top:4px;
+       background:#39ff14;color:#0a0c10;border:none;cursor:pointer;
+       font-family:inherit;transition:background .12s,box-shadow .12s}
+#start:hover{background:#5cff40;box-shadow:0 0 18px #39ff1455}
+#mode-desc{font-size:.65rem;color:#444c58;text-align:center;max-width:280px;min-height:2em;line-height:1.6}
+.hint{font-size:.6rem;color:#30363d;letter-spacing:.12em;text-align:center}
+
+#game{display:none;flex-direction:column;align-items:center;gap:6px;padding:16px 8px}
+#hud{display:flex;width:400px;max-width:calc(100vw - 16px);
+     justify-content:space-between;font-size:.7rem;letter-spacing:.08em;padding:3px 2px}
+.hv{color:#39ff14;font-weight:bold}
+#cw{position:relative;line-height:0}
+canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(100vw - 16px));
+       image-rendering:pixelated;image-rendering:crisp-edges;cursor:none}
+#msg{position:absolute;top:6px;left:50%;transform:translateX(-50%);
+     background:#0d1117ee;border:1px solid #21262d;padding:3px 14px;
+     font-size:.7rem;letter-spacing:.15em;color:#ffc312;pointer-events:none;
+     white-space:nowrap;display:none}
+#achv{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);
+      background:#0d1117ee;border:1px solid #21262d;padding:3px 14px;
+      font-size:.65rem;letter-spacing:.12em;color:#a855f7;pointer-events:none;
+      white-space:nowrap;display:none}
+#rev{position:absolute;top:6px;right:6px;font-size:.6rem;
+     color:#fb923c;letter-spacing:.1em;display:none}
+#ov{position:absolute;top:0;left:0;width:100%;height:100%;display:none;
+    flex-direction:column;align-items:center;justify-content:center;gap:10px;
+    background:#0a0c10cc;backdrop-filter:blur(3px)}
+#ov h2{font-size:1.8rem;letter-spacing:.3em}
+#ov.over h2{color:#f85149}
+#ov.won  h2{color:#39ff14}
+#ov-sub{font-size:.75rem;color:#444c58;letter-spacing:.12em}
+#name-in{background:#0d1117;border:1px solid #39ff14;color:#39ff14;
+         font-family:inherit;font-size:1.1rem;text-align:center;
+         padding:5px 10px;width:72px;letter-spacing:.4em;outline:none;text-transform:uppercase}
+#hs-list{font-size:.65rem;color:#444c58;text-align:center;line-height:2;
+         letter-spacing:.08em;font-variant-numeric:tabular-nums}
+.ov-row{display:flex;gap:8px;margin-top:4px}
+#daily{font-size:.62rem;color:#30363d;letter-spacing:.1em;max-width:calc(100vw - 16px);
+       text-align:center;min-height:1.2em}
+#daily span{color:#ffc312}
+
+@media(max-width:440px){h1{font-size:2rem}#game{gap:4px;padding:8px 4px}#hud{font-size:.62rem}}
+</style>
+</head>
+<body>
+
+<div id="menu">
+  <h1>SNACK</h1>
+  <div>
+    <div class="label">MODE</div>
+    <div class="row" id="mr">
+      <button class="btn on" data-m="0">CLASSIC</button>
+      <button class="btn" data-m="1">PORTAL</button>
+      <button class="btn" data-m="2">MAZE</button>
+      <button class="btn" data-m="3">TIME ATTACK</button>
+    </div>
+  </div>
+  <div>
+    <div class="label">DIFFICULTY</div>
+    <div class="row" id="dr">
+      <button class="btn" data-d="0">NOKIYA</button>
+      <button class="btn" data-d="1">EASY</button>
+      <button class="btn on" data-d="2">NORMAL</button>
+      <button class="btn" data-d="3">HARD</button>
+      <button class="btn" data-d="4">INSANE</button>
+    </div>
+  </div>
+  <div id="mode-desc"></div>
+  <button id="start">▶ START</button>
+  <div class="hint">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; ESC menu</div>
+</div>
+
+<div id="game">
+  <div id="hud">
+    <span>SCORE <span class="hv" id="h-score">0</span></span>
+    <span id="h-mid">CLASSIC · NORMAL</span>
+    <span id="h-right"></span>
+  </div>
+  <div id="cw">
+    <canvas id="c" width="400" height="400"></canvas>
+    <div id="msg"></div>
+    <div id="achv"></div>
+    <div id="rev">⚡ REVERSED</div>
+    <div id="ov">
+      <h2 id="ov-title">GAME OVER</h2>
+      <div id="ov-sub"></div>
+      <input id="name-in" maxlength="3" placeholder="AAA" spellcheck="false" autocomplete="off">
+      <div id="hs-list"></div>
+      <div class="ov-row">
+        <button class="btn" id="rbtn">RESTART</button>
+        <button class="btn" id="mbtn">MENU</button>
+      </div>
+    </div>
+  </div>
+  <div id="daily"></div>
+  <div class="hint">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; R restart &nbsp;·&nbsp; ESC menu</div>
+</div>
+
+<script type="module">
+import init, { WasmGame } from './pkg/snack_game.js';
+
+const W = 20, H = 20, CELL = 20;
+
+// Index: 0=empty-even 1=empty-odd 2=body 3=head 4=regular 5=bonus 6=golden 7=shrink 8=mystery 9=wall
+// Grid values are 0-8; we shift +1 to index into C for non-empty cells,
+// and use parity for empty.
+const CELL_COLOR = [
+  '#0d1117', '#0b0f14',  // empty (checkerboard)
+  '#1d6e38',             // body
+  '#39ff14',             // head
+  '#f85149',             // regular food
+  '#ffc312',             // bonus ★
+  '#e8a020',             // golden ◆
+  '#a855f7',             // shrink ▼
+  '#f472b6',             // mystery ?
+  '#1e2535',             // wall
+];
+const SYM = ['','','','','','★','◆','▼','?',''];
+
+const MODES = ['CLASSIC','PORTAL','MAZE','TIME ATTACK'];
+const DIFFS = ['NOKIYA','EASY','NORMAL','HARD','INSANE'];
+const DESCS = [
+  'Solid walls · speed up every 5 foods · fill the grid to win',
+  'Wrap-around walls · bonus foods · reach the score target',
+  'Navigate maze walls · collect all food to advance levels',
+  '8s per food · 3 lives · survive 60 seconds to win',
+];
+
+await init();
+
+// elements
+const menuEl   = document.getElementById('menu');
+const gameEl   = document.getElementById('game');
+const canvas   = document.getElementById('c');
+const ctx      = canvas.getContext('2d', {alpha: false});
+const ov       = document.getElementById('ov');
+const msgEl    = document.getElementById('msg');
+const achvEl   = document.getElementById('achv');
+const revEl    = document.getElementById('rev');
+const hScore   = document.getElementById('h-score');
+const hMid     = document.getElementById('h-mid');
+const hRight   = document.getElementById('h-right');
+const nameIn   = document.getElementById('name-in');
+const hsList   = document.getElementById('hs-list');
+const dailyEl  = document.getElementById('daily');
+const ovTitle  = document.getElementById('ov-title');
+const ovSub    = document.getElementById('ov-sub');
+const mDesc    = document.getElementById('mode-desc');
+
+let game = null, raf = null, lastTick = 0, saved = false;
+let selM = 0, selD = 2;
+
+// ---- menu interaction ----
+mDesc.textContent = DESCS[0];
+
+document.getElementById('mr').addEventListener('click', e => {
+  const b = e.target.closest('[data-m]');
+  if (!b) return;
+  selM = +b.dataset.m;
+  document.querySelectorAll('#mr .btn').forEach(x => x.classList.toggle('on', x === b));
+  mDesc.textContent = DESCS[selM];
+});
+
+document.getElementById('dr').addEventListener('click', e => {
+  const b = e.target.closest('[data-d]');
+  if (!b) return;
+  selD = +b.dataset.d;
+  document.querySelectorAll('#dr .btn').forEach(x => x.classList.toggle('on', x === b));
+});
+
+document.getElementById('start').addEventListener('click', startGame);
+document.getElementById('rbtn').addEventListener('click', doRestart);
+document.getElementById('mbtn').addEventListener('click', goMenu);
+
+nameIn.addEventListener('input', () => {
+  nameIn.value = nameIn.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 3);
+});
+nameIn.addEventListener('keydown', e => { if (e.key === 'Enter') doRestart(); });
+
+// ---- keyboard ----
+document.addEventListener('keydown', e => {
+  if (!game) { if (e.key === 'Enter') startGame(); return; }
+  const s = game.status();
+  switch (e.key) {
+    case 'ArrowUp':    case 'w': case 'W': game.input(0); e.preventDefault(); break;
+    case 'ArrowDown':  case 's': case 'S': game.input(1); e.preventDefault(); break;
+    case 'ArrowLeft':  case 'a': case 'A': game.input(2); e.preventDefault(); break;
+    case 'ArrowRight': case 'd': case 'D': game.input(3); e.preventDefault(); break;
+    case 'p': case 'P': if (s < 2) game.toggle_pause(); break;
+    case 'r': case 'R': if (s === 2 || s === 3) doRestart(); break;
+    case 'Escape': goMenu(); break;
+  }
+});
+
+// ---- touch swipe ----
+let t0 = null;
+canvas.addEventListener('touchstart', e => {
+  t0 = [e.touches[0].clientX, e.touches[0].clientY];
+  e.preventDefault();
+}, {passive: false});
+canvas.addEventListener('touchend', e => {
+  if (!t0 || !game || game.status() !== 0) { t0 = null; return; }
+  const dx = e.changedTouches[0].clientX - t0[0];
+  const dy = e.changedTouches[0].clientY - t0[1];
+  game.input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 3 : 2) : (dy > 0 ? 1 : 0));
+  t0 = null;
+  e.preventDefault();
+}, {passive: false});
+
+// ---- game actions ----
+function startGame() {
+  game = new WasmGame(selM, selD);
+  saved = false; lastTick = 0;
+  hMid.textContent = MODES[selM] + ' · ' + DIFFS[selD];
+  menuEl.style.display = 'none';
+  gameEl.style.display = 'flex';
+  ov.style.display = 'none';
+  cancelAnimationFrame(raf);
+  raf = requestAnimationFrame(loop);
+}
+
+function doRestart() {
+  trySave();
+  game.restart();
+  saved = false; lastTick = 0;
+  ov.style.display = 'none';
+}
+
+function goMenu() {
+  trySave();
+  cancelAnimationFrame(raf); raf = null; game = null;
+  gameEl.style.display = 'none';
+  menuEl.style.display = 'flex';
+  saved = false;
+}
+
+function trySave() {
+  if (!game || saved) return;
+  const s = game.status();
+  if (s !== 2 && s !== 3) return;
+  game.save_score((nameIn.value || 'AAA').padEnd(3, 'A').slice(0, 3));
+  saved = true;
+}
+
+// ---- game loop ----
+function loop(ts) {
+  raf = requestAnimationFrame(loop);
+  if (!game) return;
+  if (game.status() === 0 && ts - lastTick >= game.tick_ms()) {
+    game.tick();
+    lastTick = ts;
+  }
+  draw(ts);
+}
+
+// ---- canvas draw ----
+function draw(ts) {
+  const s = game.status();
+  const g = game.grid();   // Uint8Array, 400 bytes
+
+  // clear
+  ctx.fillStyle = '#0a0c10';
+  ctx.fillRect(0, 0, 400, 400);
+
+  // cells
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = 'bold 11px monospace';
+
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const cell = g[y * W + x];
+      // empty: checkerboard parity; others: direct lookup (shift by +1 to skip the two empty slots)
+      ctx.fillStyle = cell === 0 ? CELL_COLOR[(x + y) & 1] : CELL_COLOR[cell + 1];
+      ctx.fillRect(x * CELL + 1, y * CELL + 1, CELL - 2, CELL - 2);
+      // symbol on special food
+      if (SYM[cell]) {
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillText(SYM[cell], x * CELL + CELL / 2, y * CELL + CELL / 2 + 1);
+      }
+    }
+  }
+
+  // danger border pulse
+  if (game.danger() && s === 0) {
+    const a = 0.3 + 0.25 * Math.sin(ts / 55);
+    ctx.strokeStyle = `rgba(248,81,73,${a})`;
+    ctx.lineWidth = 4;
+    ctx.strokeRect(2, 2, 396, 396);
+  }
+
+  // HUD
+  hScore.textContent = game.score();
+  const mid = game.mode_id();
+  if (mid === 3) {
+    const lv = game.lives();
+    hRight.textContent = '♥'.repeat(lv) + '♡'.repeat(3 - lv) + '  ⏱' + game.time_left().toFixed(0) + 's';
+  } else if (mid === 1) {
+    hRight.textContent = 'TARGET ' + game.portal_target();
+  } else {
+    hRight.textContent = 'LVL ' + game.level();
+  }
+  const sk = game.streak();
+  if (sk >= 3) hRight.textContent += '  🔥' + sk;
+
+  // message / achievement banners
+  const m = game.message();
+  msgEl.textContent = m; msgEl.style.display = m ? 'block' : 'none';
+
+  const ac = game.achievement();
+  if (ac) { achvEl.textContent = '🏆 ' + ac; achvEl.style.display = 'block'; }
+  else     { achvEl.style.display = 'none'; }
+
+  revEl.style.display = game.reversed() ? 'block' : 'none';
+
+  // daily mission
+  const dd = game.daily_desc();
+  if (dd) {
+    const dp = game.daily_progress(), dt = game.daily_target(), done = game.daily_done();
+    dailyEl.innerHTML = done
+      ? `✓ <span>${dd}</span>`
+      : `◎ ${dd} &nbsp;<span>${dp}/${dt}</span>`;
+  }
+
+  // pause overlay
+  if (s === 1) {
+    ctx.fillStyle = 'rgba(10,12,16,0.82)';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#58a6ff';
+    ctx.font = 'bold 1.3rem Courier New';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('PAUSED', 200, 192);
+    ctx.fillStyle = '#30363d';
+    ctx.font = '.62rem Courier New';
+    ctx.fillText('press P to resume', 200, 214);
+    return;
+  }
+
+  // end screen
+  if ((s === 2 || s === 3) && ov.style.display !== 'flex') {
+    ov.style.display = 'flex';
+    ov.className = s === 2 ? 'over' : 'won';
+    ovTitle.textContent = s === 2 ? 'GAME OVER' : 'YOU WIN!';
+    ovSub.textContent = 'SCORE ' + game.score() + (game.streak() > 1 ? '  ×' + game.streak() + ' STREAK' : '');
+    nameIn.value = '';
+    setTimeout(() => nameIn.focus(), 60);
+    try {
+      const sc = JSON.parse(game.high_scores());
+      hsList.innerHTML = sc.length
+        ? '<div style="color:#30363d;margin-bottom:4px;letter-spacing:.2em">HIGH SCORES</div>' +
+          sc.map((e, i) => `${i+1}. ${(e.n||'---').padEnd(3)} &nbsp;${String(e.s).padStart(7)}`).join('<br>')
+        : '';
+    } catch (_) { hsList.innerHTML = ''; }
+  }
+}
+</script>
+</body>
+</html>

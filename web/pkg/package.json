@@ -1,0 +1,15 @@
+{
+  "name": "snack_game",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "snack_game_bg.wasm",
+    "snack_game.js",
+    "snack_game.d.ts"
+  ],
+  "main": "snack_game.js",
+  "types": "snack_game.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

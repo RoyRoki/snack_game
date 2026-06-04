@@ -1,15 +1,22 @@
 use std::collections::{HashSet, VecDeque};
-use std::io::{self, Write};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use instant::Instant;
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::{self, Write};
+
+#[cfg(not(target_arch = "wasm32"))]
 use crossterm::{
     cursor, event,
     event::{Event, KeyCode},
     execute, terminal,
 };
+
 use rand::Rng;
 
+#[cfg(not(target_arch = "wasm32"))]
 use crate::render;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::storage;
 use crate::types::*;
 
@@ -42,18 +49,18 @@ pub struct GameState {
     // Insane mode idle ticks counter
     pub idle_ticks: u32,
     // CD3: floating score text shown by renderer
-    pub last_eaten: Option<(Pos, String, std::time::Instant)>,
+    pub last_eaten: Option<(Pos, String, Instant)>,
     // CD7: mystery food reversed-controls effect
-    pub reversed_until: Option<std::time::Instant>,
+    pub reversed_until: Option<Instant>,
     // CD2: achievement popup queue (name, unlocked_at)
-    pub pending_achievement: Option<(String, std::time::Instant)>,
+    pub pending_achievement: Option<(String, Instant)>,
     // CD3/CD4: session stats
     pub max_streak: u32,
     pub ticks_lived: u64,
     // CD8: precomputed by tick(), true when next move is fatal
     pub danger_next_tick: bool,
     // CD8: when streak was just lost (for brief alert)
-    pub streak_lost_at: Option<std::time::Instant>,
+    pub streak_lost_at: Option<Instant>,
     // CD2: count foods eaten specifically on Insane diff (SpeedDemon achievement)
     pub insane_foods: u32,
     // CD4/CD8: personal best for this mode+diff, loaded at init
@@ -330,7 +337,7 @@ impl GameState {
 
     pub fn handle_dir(&mut self, dir: Dir) {
         let effective = if self.reversed_until
-            .map(|t| std::time::Instant::now() < t)
+            .map(|t| Instant::now() < t)
             .unwrap_or(false)
         {
             match dir {
@@ -347,7 +354,7 @@ impl GameState {
         if crate::storage::unlock_achievement(a) {
             self.pending_achievement = Some((
                 format!("Achievement: {}", a.name()),
-                std::time::Instant::now(),
+                Instant::now(),
             ));
         }
     }
@@ -378,7 +385,7 @@ impl GameState {
             && !self.food.iter().any(|f| f.kind == FoodKind::Regular)
         {
             self.spawn_food(FoodKind::Regular);
-            self.food_timer = Some(std::time::Instant::now());
+            self.food_timer = Some(Instant::now());
         }
 
         // Apply direction
@@ -479,29 +486,29 @@ impl GameState {
                 pts += mystery_pts; // for floating text
                 match effect {
                     crate::types::MysteryEffect::SpeedBoost => {
-                        let new_boost_end = std::time::Instant::now() + Duration::from_secs(5);
+                        let new_boost_end = Instant::now() + Duration::from_secs(5);
                         self.speed_boost_until = Some(
                             self.speed_boost_until
-                                .filter(|&t| t > std::time::Instant::now())
+                                .filter(|&t| t > Instant::now())
                                 .map(|t| t.max(new_boost_end))
                                 .unwrap_or(new_boost_end)
                         );
                     }
                     crate::types::MysteryEffect::Reverse => {
-                        self.reversed_until = Some(std::time::Instant::now() + Duration::from_secs(3));
+                        self.reversed_until = Some(Instant::now() + Duration::from_secs(3));
                     }
                     crate::types::MysteryEffect::Shrink => {
                         for _ in 0..3 { if self.snake.len() > 1 { self.snake.pop_back(); } }
                     }
                     _ => {}
                 }
-                self.message = Some((effect.label().to_string(), std::time::Instant::now()));
+                self.message = Some((effect.label().to_string(), Instant::now()));
             }
 
             // Update personal best live (CD4/CD8)
             if self.score > self.personal_best {
                 if self.personal_best > 0 {
-                    self.message = Some(("★ New Personal Best!".to_string(), std::time::Instant::now()));
+                    self.message = Some(("★ New Personal Best!".to_string(), Instant::now()));
                 }
                 self.personal_best = self.score;
             }
@@ -513,13 +520,13 @@ impl GameState {
                 if self.message.is_none() {
                     self.message = Some((
                         format!("So close! Best: {}", top_score),
-                        std::time::Instant::now(),
+                        Instant::now(),
                     ));
                 }
             }
 
             // Floating score text
-            self.last_eaten = Some((new_head, format!("+{}", pts), std::time::Instant::now()));
+            self.last_eaten = Some((new_head, format!("+{}", pts), Instant::now()));
 
             self.streak += 1;
             self.foods_eaten += 1;
@@ -536,10 +543,10 @@ impl GameState {
 
             // Golden food speed boost
             if food.kind == FoodKind::Golden {
-                let new_boost_end = std::time::Instant::now() + Duration::from_secs(3);
+                let new_boost_end = Instant::now() + Duration::from_secs(3);
                 self.speed_boost_until = Some(
                     self.speed_boost_until
-                        .filter(|&t| t > std::time::Instant::now())
+                        .filter(|&t| t > Instant::now())
                         .map(|t| t.max(new_boost_end))
                         .unwrap_or(new_boost_end)
                 );
@@ -644,7 +651,7 @@ impl GameState {
             self.snake.pop_back();
             self.idle_ticks += 1;
             if self.streak >= 2 {
-                self.streak_lost_at = Some(std::time::Instant::now());
+                self.streak_lost_at = Some(Instant::now());
             }
             self.streak = 0;
 
@@ -671,7 +678,7 @@ impl GameState {
                     }
                     self.message = Some((
                         format!("Life Lost! {} ♥ left", self.lives),
-                        std::time::Instant::now(),
+                        Instant::now(),
                     ));
                     // Remove current food and respawn
                     self.food.retain(|f| f.kind != FoodKind::Regular);
@@ -699,7 +706,7 @@ impl GameState {
 
         // Expire reversed controls
         if let Some(t) = self.reversed_until {
-            if std::time::Instant::now() >= t { self.reversed_until = None; }
+            if Instant::now() >= t { self.reversed_until = None; }
         }
         // Expire achievement popup after 3s
         if let Some((_, t)) = &self.pending_achievement {
@@ -740,6 +747,7 @@ impl GameState {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run(mode: Mode, diff: Diff) {
     let mut stdout = io::stdout();
     execute!(
@@ -759,6 +767,7 @@ pub fn run(mode: Mode, diff: Diff) {
     let _ = result;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn game_loop(mode: Mode, diff: Diff, stdout: &mut impl Write) -> Option<(u32, Mode, Diff, u32)> {
     let mut state = GameState::new(mode, diff);
     let mut last_tick = Instant::now();
@@ -769,7 +778,11 @@ fn game_loop(mode: Mode, diff: Diff, stdout: &mut impl Write) -> Option<(u32, Mo
         let tick_ms = state.effective_tick_ms();
         let elapsed = last_tick.elapsed();
         let wait = Duration::from_millis(tick_ms).saturating_sub(elapsed);
-        let poll_timeout = wait.min(Duration::from_millis(50));
+        let poll_timeout = if state.status == Status::Running {
+            wait.min(Duration::from_millis(50))
+        } else {
+            Duration::from_millis(150)
+        };
 
         if event::poll(poll_timeout).unwrap_or(false) {
             if let Ok(Event::Key(key)) = event::read() {

@@ -1,0 +1,13 @@
+{
+  "buildCommand": null,
+  "outputDirectory": "web",
+  "framework": null,
+  "headers": [
+    {
+      "source": "/pkg/(.*)\\.wasm",
+      "headers": [
+        { "key": "Content-Type", "value": "application/wasm" }
+      ]
+    }
+  ]
+}

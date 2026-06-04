@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Achievement, Diff, Mode};
@@ -37,8 +36,8 @@ impl PlayerProfile {
 pub struct DailyMission {
     pub date: String,
     pub description: String,
-    pub target_type: String,  // "foods" | "score" | "streak"
-    pub target_mode: String,  // mode name or "any"
+    pub target_type: String,
+    pub target_mode: String,
     pub target: u32,
     pub progress: u32,
     pub completed: bool,
@@ -51,35 +50,73 @@ pub struct GameData {
     pub daily: Option<DailyMission>,
 }
 
-// --- persistence ---
+// ---- time helpers ----
 
+#[cfg(not(target_arch = "wasm32"))]
+fn now_secs() -> u64 {
+    use std::time::SystemTime;
+    SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_secs() -> u64 {
+    (js_sys::Date::now() / 1000.0) as u64
+}
+
+// ---- persistence: native (file) ----
+
+#[cfg(not(target_arch = "wasm32"))]
 fn data_path() -> std::path::PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     std::path::Path::new(&home).join(".snake_scores.json")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_data() -> GameData {
-    let path = data_path();
-    std::fs::read_to_string(&path)
+    std::fs::read_to_string(data_path())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default()
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn save_data(data: &GameData) {
-    let path = data_path();
     if let Ok(s) = serde_json::to_string_pretty(data) {
-        let _ = std::fs::write(path, s);
+        let _ = std::fs::write(data_path(), s);
     }
 }
 
-// --- daily mission ---
+// ---- persistence: wasm (localStorage) ----
+
+#[cfg(target_arch = "wasm32")]
+fn local_storage() -> Option<web_sys::Storage> {
+    web_sys::window()?.local_storage().ok()?
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_data() -> GameData {
+    local_storage()
+        .and_then(|ls| ls.get_item("snake_data").ok().flatten())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_data(data: &GameData) {
+    if let Some(ls) = local_storage() {
+        if let Ok(s) = serde_json::to_string(data) {
+            let _ = ls.set_item("snake_data", &s);
+        }
+    }
+}
+
+// ---- daily mission ----
 
 fn today_str() -> String {
-    let secs = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_secs()).unwrap_or(0);
-    let (y, m, d) = epoch_secs_to_ymd(secs);
+    let (y, m, d) = epoch_secs_to_ymd(now_secs());
     format!("{:04}-{:02}-{:02}", y, m, d)
 }
 
@@ -94,7 +131,7 @@ fn epoch_secs_to_ymd(secs: u64) -> (u64, u64, u64) {
         year += 1;
     }
     let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
-    let month_days = [31u64, if leap {29} else {28}, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let month_days = [31u64, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
     let mut month = 1u64;
     for &md in &month_days {
         if days < md { break; }
@@ -167,7 +204,7 @@ pub fn update_daily_progress(mode: Mode, ttype: &str, value: u32) {
     save_data(&data);
 }
 
-// --- scores / profile ---
+// ---- scores / profile ----
 
 pub fn score_key(mode: Mode, diff: Diff) -> String {
     format!("{}_{}", mode.name(), diff.name())
@@ -191,10 +228,10 @@ pub fn record_score_named(mode: Mode, diff: Diff, score: u32, level: u32, name: 
     let mut data = load_data();
     let key = score_key(mode, diff);
     let entry = ScoreEntry {
-        score, level, name: name.to_string(),
-        timestamp: SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .map(|d| d.as_secs()).unwrap_or(0),
+        score,
+        level,
+        name: name.to_string(),
+        timestamp: now_secs(),
     };
     let list = data.scores.entry(key).or_default();
     list.push(entry);
@@ -219,8 +256,6 @@ pub fn get_profile() -> PlayerProfile {
     load_data().profile
 }
 
-/// Unlocks an achievement; returns true if it was newly unlocked.
-/// Also auto-unlocks Collector if all others are done.
 pub fn unlock_achievement(a: Achievement) -> bool {
     let mut data = load_data();
     let newly = data.profile.unlock(a);

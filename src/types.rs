@@ -1,4 +1,4 @@
-use std::time::Instant;
+use instant::Instant;
 
 pub const GRID_W: i32 = 20;
 pub const GRID_H: i32 = 20;
