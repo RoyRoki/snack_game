@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>SNACK</title>
+<link rel="preload" href="./pkg/snack_game_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+<link rel="modulepreload" href="./pkg/snack_game.js">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:#0a0c10;color:#c9d1d9;font-family:'Courier New',monospace;
@@ -88,7 +90,7 @@ canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(1
     </div>
   </div>
   <div id="mode-desc"></div>
-  <button id="start">▶ START</button>
+  <button id="start" disabled style="opacity:.4;cursor:not-allowed">⏳ LOADING</button>
   <div class="hint">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; ESC menu</div>
 </div>
 
@@ -149,6 +151,10 @@ const DESCS = [
 ];
 
 await init();
+const startBtn = document.getElementById('start');
+startBtn.disabled = false;
+startBtn.style.cssText = '';
+startBtn.textContent = '▶ START';
 
 // elements
 const menuEl   = document.getElementById('menu');
