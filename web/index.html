@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>SNACK</title>
+<title>SNAKE</title>
 <link rel="preload" href="./pkg/snack_game_bg.wasm" as="fetch" type="application/wasm" crossorigin>
 <link rel="modulepreload" href="./pkg/snack_game.js">
 <style>
@@ -28,6 +28,8 @@ h1{font-size:2.8rem;letter-spacing:.5em;color:#39ff14;
 #start:hover{background:#5cff40;box-shadow:0 0 18px #39ff1455}
 #mode-desc{font-size:.65rem;color:#444c58;text-align:center;max-width:280px;min-height:2em;line-height:1.6}
 .hint{font-size:.6rem;color:#30363d;letter-spacing:.12em;text-align:center}
+.hint-touch{display:none}
+@media(hover:none) and (pointer:coarse){.hint-kb{display:none}.hint-touch{display:block}}
 
 #game{display:none;flex-direction:column;align-items:center;gap:6px;padding:16px 8px}
 #hud{display:flex;width:400px;max-width:calc(100vw - 16px);
@@ -69,7 +71,7 @@ canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(1
 <body>
 
 <div id="menu">
-  <h1>SNACK</h1>
+  <h1>SNAKE</h1>
   <div>
     <div class="label">MODE</div>
     <div class="row" id="mr">
@@ -91,7 +93,8 @@ canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(1
   </div>
   <div id="mode-desc"></div>
   <button id="start" disabled style="opacity:.4;cursor:not-allowed">⏳ LOADING</button>
-  <div class="hint">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; ESC menu</div>
+  <div class="hint hint-kb">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; ESC menu</div>
+  <div class="hint hint-touch">SWIPE ← → ↑ ↓ to move the snake</div>
 </div>
 
 <div id="game">
@@ -117,7 +120,8 @@ canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(1
     </div>
   </div>
   <div id="daily"></div>
-  <div class="hint">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; R restart &nbsp;·&nbsp; ESC menu</div>
+  <div class="hint hint-kb">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; R restart &nbsp;·&nbsp; ESC menu</div>
+  <div class="hint hint-touch">SWIPE ← → ↑ ↓ to move &nbsp;·&nbsp; TAP twice to pause</div>
 </div>
 
 <script type="module">
@@ -220,17 +224,33 @@ document.addEventListener('keydown', e => {
   }
 });
 
-// ---- touch swipe ----
-let t0 = null;
+// ---- touch swipe + double-tap pause ----
+let t0 = null, lastTap = 0;
 canvas.addEventListener('touchstart', e => {
   t0 = [e.touches[0].clientX, e.touches[0].clientY];
   e.preventDefault();
 }, {passive: false});
 canvas.addEventListener('touchend', e => {
-  if (!t0 || !game || game.status() !== 0) { t0 = null; return; }
-  const dx = e.changedTouches[0].clientX - t0[0];
-  const dy = e.changedTouches[0].clientY - t0[1];
-  game.input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 3 : 2) : (dy > 0 ? 1 : 0));
+  if (!game) { t0 = null; return; }
+  const s = game.status();
+  const x1 = e.changedTouches[0].clientX, y1 = e.changedTouches[0].clientY;
+  const dx = t0 ? x1 - t0[0] : 0, dy = t0 ? y1 - t0[1] : 0;
+  const dist = Math.hypot(dx, dy);
+
+  // double-tap to pause/resume (tap = movement < 10px)
+  if (dist < 10) {
+    const now = Date.now();
+    if (now - lastTap < 300 && (s === 0 || s === 1)) game.toggle_pause();
+    lastTap = now;
+    t0 = null;
+    e.preventDefault();
+    return;
+  }
+
+  // swipe to move
+  if (s === 0) {
+    game.input(Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 3 : 2) : (dy > 0 ? 1 : 0));
+  }
   t0 = null;
   e.preventDefault();
 }, {passive: false});
