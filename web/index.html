@@ -31,6 +31,16 @@ h1{font-size:2.8rem;letter-spacing:.5em;color:#39ff14;
 .hint-touch{display:none}
 @media(hover:none) and (pointer:coarse){.hint-kb{display:none}.hint-touch{display:block}}
 
+/* D-pad controls */
+#dpad{display:grid;grid-template-columns:repeat(3,52px);grid-template-rows:repeat(3,52px);gap:5px;margin:6px 0}
+.cbtn{background:#0d1117;border:1px solid #21262d;color:#636e83;font-size:1rem;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;
+      border-radius:6px;-webkit-tap-highlight-color:transparent;touch-action:manipulation;
+      transition:background .1s,border-color .1s,color .1s;user-select:none}
+.cbtn:active,.cbtn.pressed{background:#0d2318;border-color:#39ff14;color:#39ff14}
+#cb-pause{border-color:#2a3040;font-size:.85rem}
+#cb-pause.paused{border-color:#58a6ff;color:#58a6ff}
+
 #game{display:none;flex-direction:column;align-items:center;gap:6px;padding:16px 8px}
 #hud{display:flex;width:400px;max-width:calc(100vw - 16px);
      justify-content:space-between;font-size:.7rem;letter-spacing:.08em;padding:3px 2px}
@@ -119,9 +129,20 @@ canvas{display:block;width:min(400px,calc(100vw - 16px));height:min(400px,calc(1
       </div>
     </div>
   </div>
+  <div id="dpad">
+    <span></span>
+    <button class="cbtn" id="cb-up">▲</button>
+    <span></span>
+    <button class="cbtn" id="cb-left">◀</button>
+    <button class="cbtn" id="cb-pause">⏸</button>
+    <button class="cbtn" id="cb-right">▶</button>
+    <span></span>
+    <button class="cbtn" id="cb-down">▼</button>
+    <span></span>
+  </div>
   <div id="daily"></div>
   <div class="hint hint-kb">ARROWS / WASD &nbsp;·&nbsp; P pause &nbsp;·&nbsp; R restart &nbsp;·&nbsp; ESC menu</div>
-  <div class="hint hint-touch">SWIPE ← → ↑ ↓ to move &nbsp;·&nbsp; TAP twice to pause</div>
+  <div class="hint hint-touch">SWIPE or tap buttons &nbsp;·&nbsp; ⏸ to pause</div>
 </div>
 
 <script type="module">
@@ -255,6 +276,23 @@ canvas.addEventListener('touchend', e => {
   e.preventDefault();
 }, {passive: false});
 
+// ---- d-pad buttons ----
+const DPAD = { 'cb-up': 0, 'cb-down': 1, 'cb-left': 2, 'cb-right': 3 };
+const pauseBtn = document.getElementById('cb-pause');
+for (const [id, dir] of Object.entries(DPAD)) {
+  const btn = document.getElementById(id);
+  btn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    if (game && game.status() === 0) game.input(dir);
+  });
+}
+pauseBtn.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (!game) return;
+  const s = game.status();
+  if (s === 0 || s === 1) game.toggle_pause();
+});
+
 // ---- game actions ----
 function startGame() {
   game = new WasmGame(selM, selD);
@@ -360,6 +398,9 @@ function draw(ts) {
   else     { achvEl.style.display = 'none'; }
 
   revEl.style.display = game.reversed() ? 'block' : 'none';
+  const paused = game.status() === 1;
+  pauseBtn.textContent = paused ? '▶' : '⏸';
+  pauseBtn.classList.toggle('paused', paused);
 
   // daily mission
   const dd = game.daily_desc();
